@@ -1,0 +1,52 @@
+{
+  "name": "debugtrace",
+  "displayName": "DebugTrace",
+  "description": "AI-powered C++ static analysis + runtime error diagnosis",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "Linters"],
+  "activationEvents": ["onLanguage:cpp", "onLanguage:c"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "debugtrace.analyze",
+        "title": "DebugTrace: Analyze Current File"
+      },
+      {
+        "command": "debugtrace.setApiKey",
+        "title": "DebugTrace: Set Anthropic API Key"
+      }
+    ],
+    "configuration": {
+      "title": "DebugTrace",
+      "properties": {
+        "debugtrace.pythonPath": {
+          "type": "string",
+          "default": "python3",
+          "description": "Path to Python interpreter with tree-sitter-cpp installed"
+        },
+        "debugtrace.enginePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the DebugTrace engine folder (containing analyze.py)"
+        },
+        "debugtrace.autoAnalyzeOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically analyze C++ files on save"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
