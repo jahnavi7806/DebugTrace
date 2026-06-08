@@ -10,6 +10,7 @@ import os
 import argparse
 import urllib.request
 import urllib.error
+from pathlib import Path
 
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 MODEL = "openrouter/auto"
@@ -18,40 +19,46 @@ MODEL = "openrouter/auto"
 def build_prompt(analysis: dict) -> str:
     lines = []
     file_path = analysis.get("file", "unknown")
-    lines.append(f"You are a C++ debugging assistant. Analyze the following code and errors from `{file_path}`.\n")
+    lang = analysis.get("language", "unknown")
+    all_files = analysis.get("all_files_checked", [file_path])
+
+    lines.append(f"You are a {lang} debugging assistant. Analyze errors from `{Path(file_path).name}`.\n")
+
+    if len(all_files) > 1:
+        lines.append(f"**Project files checked:** {', '.join(Path(f).name for f in all_files)}\n")
 
     compiler_errors = analysis.get("compiler_errors", [])
     if compiler_errors:
-        lines.append("## Compiler / Runtime Errors\n")
+        lines.append("## Errors / Warnings\n")
         for e in compiler_errors[:10]:
-            lines.append(f"- {e.get('raw', e.get('message', ''))}")
+            err_file = e.get("file", "")
+            prefix = f"`{Path(err_file).name}` line {e['line']}: " if e.get("line") and err_file else ""
+            lines.append(f"- {prefix}{e.get('message', e.get('raw', ''))}")
+            if e.get("cross_file_source"):
+                cross = e["cross_file_source"]
+                lines.append(f"  ↳ Cross-file: {cross.get('reason', '')} (`{Path(cross['file']).name}`)")
         lines.append("")
 
     ctx = analysis.get("error_context")
     if ctx:
-        lines.append(f"## Function containing the error: `{ctx['name']}` (lines {ctx['start_line']}–{ctx['end_line']}, complexity={ctx['complexity']})\n")
-        lines.append("```cpp")
-        lines.append(ctx["body"])
+        lines.append(f"## Function with error: `{ctx['name']}` (lines {ctx['start_line']}–{ctx['end_line']}, complexity={ctx['complexity']})\n")
+        lines.append(f"```{lang if lang != 'javascript' else 'js'}")
+        lines.append(ctx["body"][:1000])
         lines.append("```\n")
 
-    functions = analysis.get("functions", [])
-    high_complexity = [f for f in functions if f["complexity"] >= 5]
-    if high_complexity and not ctx:
-        lines.append("## High-Complexity Functions (possible problem areas)\n")
-        for fn in high_complexity[:3]:
-            lines.append(f"- `{fn['name']}` — complexity {fn['complexity']} (lines {fn['start_line']}–{fn['end_line']})")
-            lines.append("```cpp")
-            lines.append(fn["body"][:800])
-            lines.append("```")
+    import_graph = analysis.get("import_graph", {})
+    if import_graph:
+        lines.append("## File dependencies\n")
+        for f, deps in list(import_graph.items())[:5]:
+            lines.append(f"- `{Path(f).name}` imports: {', '.join(Path(d).name for d in deps)}")
         lines.append("")
 
     lines.append("## Task")
-    lines.append("1. Explain what is wrong in plain English (2-3 sentences max).")
+    lines.append("1. Explain what is wrong in plain English (2-3 sentences). If it's a cross-file issue, say which file is the root cause.")
     lines.append("2. Show the corrected code snippet.")
     lines.append("3. In one sentence, explain why this fix works.")
-    lines.append("4. If complexity is high (>=5), suggest one refactor tip.")
-    lines.append("\nBe concise. Format your response in Markdown.")
-
+    lines.append("4. If complexity >= 5, suggest one refactor tip.")
+    lines.append("\nBe concise. Format in Markdown.")
     return "\n".join(lines)
 
 

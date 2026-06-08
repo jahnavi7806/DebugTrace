@@ -19,14 +19,18 @@ interface CompilerError {
   severity?: string;
   message: string;
   raw: string;
+  cross_file_source?: { file: string; reason: string };
 }
 
 interface AnalysisResult {
   file: string;
+  language?: string;
+  all_files_checked?: string[];
   functions: FunctionInfo[];
   compiler_errors: CompilerError[];
   error_context: FunctionInfo | null;
   tree_sitter_available: boolean;
+  import_graph?: Record<string, string[]>;
   warning?: string;
   error?: string;
 }
@@ -306,6 +310,10 @@ function showPanel(
 
 function buildHtml(analysis: AnalysisResult, diagnosis: DiagnosisResult | null): string {
   const errCount = analysis.compiler_errors.length;
+  const lang = analysis.language || "unknown";
+  const allFiles = analysis.all_files_checked || [analysis.file];
+  const langIcon: Record<string, string> = { cpp: "⚙️", python: "🐍", javascript: "🟨", unknown: "📄" };
+
   const fnRows = analysis.functions.map(f => {
     const color = f.complexity >= 10 ? "#ff5f5f" : f.complexity >= 5 ? "#ffaa00" : "#4ec9b0";
     return `<tr>
@@ -315,9 +323,20 @@ function buildHtml(analysis: AnalysisResult, diagnosis: DiagnosisResult | null):
     </tr>`;
   }).join("");
 
-  const errRows = analysis.compiler_errors.map(e =>
-    `<tr><td>${e.line ?? "?"}</td><td class="err-msg">${esc(e.raw)}</td></tr>`
-  ).join("");
+  const errRows = analysis.compiler_errors.map(e => {
+    const fileName = e.file ? e.file.split(/[\\/]/).pop() : "";
+    const cross = e.cross_file_source
+      ? `<div class="cross-file">↳ Cross-file: ${esc(e.cross_file_source.reason)}</div>` : "";
+    return `<tr>
+      <td>${fileName ? `<span class="file-tag">${esc(fileName)}</span>` : ""}${e.line ?? "?"}</td>
+      <td class="err-msg">${esc(e.message || e.raw)}${cross}</td>
+    </tr>`;
+  }).join("");
+
+  const filesHtml = allFiles.length > 1
+    ? `<section><h2>${langIcon[lang]} Files Scanned</h2><div style="display:flex;flex-wrap:wrap;gap:6px">${
+        allFiles.map(f => `<span class="file-chip">${esc(f.split(/[\\/]/).pop() ?? f)}</span>`).join("")
+      }</div></section>` : "";
 
   const diagHtml = diagnosis?.diagnosis
     ? `<section><h2>🤖 AI Diagnosis</h2><div class="diagnosis">${markdownToHtml(diagnosis.diagnosis)}</div></section>`
@@ -338,8 +357,11 @@ function buildHtml(analysis: AnalysisResult, diagnosis: DiagnosisResult | null):
   section { background:var(--panel); border:1px solid var(--border); border-radius:4px; padding:12px; margin-bottom:12px; }
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; color:#888; font-weight:400; padding:4px 8px; border-bottom:1px solid var(--border); }
-  td { padding:4px 8px; border-bottom:1px solid #2a2a2a; }
+  td { padding:4px 8px; border-bottom:1px solid #2a2a2a; vertical-align:top; }
   .err-msg { color:var(--err); font-family:monospace; font-size:11px; word-break:break-all; }
+  .cross-file { color:var(--warn); font-size:10px; margin-top:3px; font-family:'Segoe UI',sans-serif; }
+  .file-tag { background:#2a2a2a; color:#9cdcfe; border-radius:3px; padding:1px 4px; font-size:10px; margin-right:4px; }
+  .file-chip { background:#2a3a4a; color:#9cdcfe; border-radius:10px; padding:2px 8px; font-size:11px; }
   .diagnosis { line-height:1.7; }
   .diagnosis pre { background:#1a1a1a; padding:10px; border-radius:3px; overflow-x:auto; margin:8px 0; }
   .diagnosis code { font-family:'Cascadia Code','Consolas',monospace; font-size:12px; }
@@ -349,31 +371,33 @@ function buildHtml(analysis: AnalysisResult, diagnosis: DiagnosisResult | null):
   .badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; }
   .badge-err { background:#4f1e1e; color:var(--err); }
   .badge-ok { background:#1e3a2a; color:#4ec9b0; }
+  .lang-badge { background:#2a2a2a; color:#888; padding:2px 8px; border-radius:10px; font-size:11px; }
 </style>
 </head>
 <body>
 <h1>⚡ DebugTrace</h1>
-<div style="margin-bottom:12px">
+<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
   <span class="badge ${errCount > 0 ? 'badge-err' : 'badge-ok'}">
     ${errCount > 0 ? `${errCount} error${errCount > 1 ? 's' : ''}` : '✓ Clean'}
   </span>
-  &nbsp;
+  <span class="lang-badge">${langIcon[lang]} ${lang}</span>
   <span style="color:#666">${esc(analysis.file.split(/[\\/]/).pop() ?? analysis.file)}</span>
 </div>
 
+${filesHtml}
 ${diagHtml}
 
 <section>
   <h2>Functions</h2>
   ${analysis.functions.length === 0
-    ? '<p class="muted">No functions found (tree-sitter not available or no functions defined)</p>'
+    ? '<p class="muted">No functions found</p>'
     : `<table><thead><tr><th>Name</th><th>Lines</th><th>Complexity</th></tr></thead><tbody>${fnRows}</tbody></table>`
   }
 </section>
 
 ${errCount > 0 ? `<section>
-  <h2>Compiler Errors</h2>
-  <table><thead><tr><th>Line</th><th>Message</th></tr></thead><tbody>${errRows}</tbody></table>
+  <h2>Errors</h2>
+  <table><thead><tr><th>File / Line</th><th>Message</th></tr></thead><tbody>${errRows}</tbody></table>
 </section>` : ""}
 
 </body>
@@ -383,7 +407,7 @@ ${errCount > 0 ? `<section>
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function isCppFile(doc: vscode.TextDocument): boolean {
-  return ["cpp", "c", "cc", "cxx", "h", "hpp"].includes(
+  return ["cpp", "c", "cc", "cxx", "h", "hpp", "py", "js", "ts", "jsx", "tsx", "mjs"].includes(
     doc.fileName.split(".").pop()?.toLowerCase() ?? ""
   );
 }
