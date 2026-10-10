@@ -1,78 +1,68 @@
 # DebugTrace
 
-AI-powered C++ static analysis + runtime error diagnosis inside VS Code.
+AI-powered debugging for VS Code that understands errors **across files**, not just the one line in the stack trace.
 
-## What it does
+## The problem
 
-- **On every save** of a `.cpp`/`.cc`/`.h` file:
-  - Runs `g++`/`clang++` and captures errors → shows red squiggles inline
-  - Parses the AST with `tree-sitter-cpp` → cyclomatic complexity per function
-  - Sends error + function context to Claude API → plain-English diagnosis + fix
-  - Opens a side panel with everything
+The real cause of a bug is often in a different file from the one in the error message. Pasting a single error into a chatbot usually misses it, because the chatbot has no idea what the other files contain. Fixing that by hand means copying code between your editor and a chat window again and again.
 
-## Setup (5 minutes)
+## What DebugTrace does
 
-### 1. Install Python engine dependencies
+1. Detects the error in your code
+2. Follows it to the related files across your project
+3. Sends the error plus that cross-file context to an LLM through OpenRouter
+4. Shows the likely root cause and a suggested fix, right inside VS Code
 
-```bash
-cd engine/
-pip install -r requirements.txt
-```
+It works with multiple languages, and it handles Windows file paths correctly when parsing stack traces.
 
-### 2. Make sure you have g++ or clang++
+## Install
 
-```bash
-g++ --version   # or: clang++ --version
-```
+DebugTrace is packaged as a `.vsix` file and is not on the VS Code Marketplace yet.
 
-### 3. Install the VS Code extension
+1. Go to the **Releases** page of this repository and download the latest `.vsix` file
+2. In VS Code, open the **Extensions** panel
+3. Click the **...** menu at the top of the panel and choose **Install from VSIX...**
+4. Select the downloaded file and reload VS Code
 
-```bash
-cd extension/
-npm install
-npm run compile
-```
+## Setup
 
-Then in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX** — or just press **F5** inside the `extension/` folder to launch a dev host.
+DebugTrace uses [OpenRouter](https://openrouter.ai) to call the language model, so you need your own API key.
 
-### 4. Set your Anthropic API key
+1. Create a free account at openrouter.ai and generate an API key
+2. Add the key to the DebugTrace setting in VS Code (Settings, search for "DebugTrace")
 
-`Ctrl+Shift+P` → **DebugTrace: Set Anthropic API Key**
+Your key stays on your machine and is only used to call OpenRouter.
 
-### 5. Configure engine path (if needed)
+## How to use
 
-In VS Code settings (`settings.json`):
-
-```json
-{
-  "debugtrace.enginePath": "/absolute/path/to/debugtrace/engine",
-  "debugtrace.pythonPath": "python3"
-}
-```
-
-## Usage
-
-- **Auto:** Just save any `.cpp` file — analysis runs automatically
-- **Manual:** `Ctrl+Shift+P` → **DebugTrace: Analyze Current File**
+1. Open a project that has an error
+2. Open the Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)
+3. Run the DebugTrace command
+4. Read the diagnosis and the suggested fix
 
 ## Project structure
 
-```
-debugtrace/
-├── engine/
-│   ├── analyze.py      ← tree-sitter AST parser + g++ error capture
-│   ├── diagnose.py     ← Claude API call for diagnosis
-│   └── requirements.txt
-└── extension/
-    ├── src/extension.ts  ← VS Code extension (shells out to Python)
-    ├── package.json
-    └── tsconfig.json
-```
+| File | Role |
+|---|---|
+| `extension.ts` | Extension entry point and VS Code integration |
+| `analyzer.ts` | Error detection and cross-file analysis |
+| `diagnose.ts` | Builds the prompt and calls the OpenRouter API |
+| `stats.ts` | Statistics helpers |
 
-## Complexity legend
+## Why OpenRouter
 
-| Score | Meaning |
-|-------|---------|
-| 1–4   | ✅ Simple |
-| 5–9   | ⚠️ Moderate — consider refactoring |
-| 10+   | 🔴 High — hard to test and maintain |
+One API gives access to many models. DebugTrace is not tied to a single provider, and the model can be swapped without changing the code.
+
+## Built with
+
+TypeScript, VS Code Extension API, OpenRouter API
+
+## Roadmap
+
+- Publish to the VS Code Marketplace
+- UI/UX improvements
+- Better context selection for large projects
+
+## Author
+
+Jahnavi Boddupalli - [GitHub](https://github.com/jahnavi7806) - [LinkedIn](https://www.linkedin.com/in/jahnavi-boddupalli-858b6b32a)
